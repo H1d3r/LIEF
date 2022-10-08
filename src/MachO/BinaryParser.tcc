@@ -3517,16 +3517,16 @@ ok_error_t BinaryParser::post_process(TwoLevelHints& cmd) {
 }
 
 
+/* This method is needed since the C++ copy constructor of ChainedBindingInfo
+ * does not (on purpose) copy the pointers associated with the object.
+ * Thus we need this helper to maker sure that in the context on the parser,
+ * the pointers are correctly copied.
+ */
 void BinaryParser::copy_from(ChainedBindingInfo& to, ChainedBindingInfo& from) {
   to.segment_ = from.segment_;
   to.symbol_  = from.symbol_;
   to.library_ = from.library_;
 }
-
-
-
-
-
 
 }
 }
