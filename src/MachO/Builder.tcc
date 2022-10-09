@@ -1157,50 +1157,61 @@ ok_error_t Builder::build(DyldChainedFixups& fixups) {
     case DYLD_CHAINED_FORMAT::IMPORT_ADDEND:
          imports.reserve(nb_bindings * sizeof(details::dyld_chained_import_addend)); break;
     case DYLD_CHAINED_FORMAT::IMPORT_ADDEND64:
-         imports.reserve(nb_bindings * sizeof(details::dyld_chained_import)); break;
+         imports.reserve(nb_bindings * sizeof(details::dyld_chained_import_addend64)); break;
   }
 
-  for (const std::unique_ptr<ChainedBindingInfo>& info : fixups.internal_bindings_) {
+  /*
+   * Here we need to iterate over all_bindings since the offset information is located
+   * in this list.
+   *
+   * In addition, we must take care of not importing the same symbol twice (i.e. `imports.write(import)`)
+   * so we track the symbols already written in a std::set
+   */
+  std::set<Symbol*> written;
+  for (const std::unique_ptr<ChainedBindingInfo>& info : fixups.all_bindings_) {
     uint32_t name_offset = 0;
-    const std::string& name = info->symbol()->name();
-    auto it_name_off = offset_name_map.find(name);
 
-    if (it_name_off != std::end(offset_name_map)) {
-      name_offset = it_name_off->second;
-    } else {
-      LIEF_WARN("Can't find symbol: '{}'", name);
-      name_offset = 0;
-    }
-    switch (fmt) {
-      case DYLD_CHAINED_FORMAT::IMPORT:
-        {
-          details::dyld_chained_import import;
-          import.lib_ordinal = info->library_ordinal();
-          import.weak_import = info->is_weak_import();
-          import.name_offset = name_offset;
-          imports.write(import);
-          break;
-        }
-      case DYLD_CHAINED_FORMAT::IMPORT_ADDEND:
-        {
-          details::dyld_chained_import_addend import;
-          import.lib_ordinal = info->library_ordinal();
-          import.weak_import = info->is_weak_import();
-          import.name_offset = name_offset;
-          import.addend      = info->addend();
-          imports_addend.write(import);
-          break;
-        }
-      case DYLD_CHAINED_FORMAT::IMPORT_ADDEND64:
-        {
-          details::dyld_chained_import_addend64 import;
-          import.lib_ordinal = info->library_ordinal();
-          import.weak_import = info->is_weak_import();
-          import.name_offset = name_offset;
-          import.addend      = info->addend();
-          imports_addend64.write(import);
-          break;
-        }
+    if (written.insert(info->symbol()).second) {
+      const std::string& name = info->symbol()->name();
+      auto it_name_off = offset_name_map.find(name);
+
+      if (it_name_off != std::end(offset_name_map)) {
+        name_offset = it_name_off->second;
+      } else {
+        LIEF_WARN("Can't find symbol: '{}'", name);
+        name_offset = 0;
+      }
+      switch (fmt) {
+        case DYLD_CHAINED_FORMAT::IMPORT:
+          {
+            details::dyld_chained_import import;
+            import.lib_ordinal = info->library_ordinal();
+            import.weak_import = info->is_weak_import();
+            import.name_offset = name_offset;
+            imports.write(import);
+            break;
+          }
+        case DYLD_CHAINED_FORMAT::IMPORT_ADDEND:
+          {
+            details::dyld_chained_import_addend import;
+            import.lib_ordinal = info->library_ordinal();
+            import.weak_import = info->is_weak_import();
+            import.name_offset = name_offset;
+            import.addend      = info->addend();
+            imports_addend.write(import);
+            break;
+          }
+        case DYLD_CHAINED_FORMAT::IMPORT_ADDEND64:
+          {
+            details::dyld_chained_import_addend64 import;
+            import.lib_ordinal = info->library_ordinal();
+            import.weak_import = info->is_weak_import();
+            import.name_offset = name_offset;
+            import.addend      = info->addend();
+            imports_addend64.write(import);
+            break;
+          }
+      }
     }
     const uint64_t rel_offset = info->offset_ - info->segment()->file_offset();
     uint8_t* data_ptr = info->segment_->writable_content().data() + rel_offset;
