@@ -50,6 +50,7 @@
 #include "MachO/Structures.hpp"
 #include "MachO/exports_trie.hpp"
 #include "MachO/ChainedFixup.hpp"
+#include "MachO/ChainedBindingInfoList.hpp"
 
 #include "internal_utils.hpp"
 
@@ -1138,7 +1139,7 @@ ok_error_t Builder::build(DyldChainedFixups& fixups) {
   string_pool.write<uint8_t>(0);
   size_t offset_counter = string_pool.tellp();
   std::vector<std::string> string_table_optimized = optimize(fixups.internal_bindings_,
-                                  [] (const std::unique_ptr<ChainedBindingInfo>& bnd) {
+                                  [] (const std::unique_ptr<ChainedBindingInfoList>& bnd) {
                                     if (const Symbol* s = bnd->symbol()) {
                                       return s->name();
                                     }
@@ -1161,99 +1162,95 @@ ok_error_t Builder::build(DyldChainedFixups& fixups) {
   }
 
   /*
-   * Here we need to iterate over all_bindings since the offset information is located
-   * in this list.
    *
-   * In addition, we must take care of not importing the same symbol twice (i.e. `imports.write(import)`)
-   * so we track the symbols already written in a std::set
    */
-  std::set<Symbol*> written;
-  for (const std::unique_ptr<ChainedBindingInfo>& info : fixups.all_bindings_) {
+  for (const std::unique_ptr<ChainedBindingInfoList>& info : fixups.internal_bindings_) {
     uint32_t name_offset = 0;
 
-    if (written.insert(info->symbol()).second) {
-      const std::string& name = info->symbol()->name();
-      auto it_name_off = offset_name_map.find(name);
+    const std::string& name = info->symbol()->name();
+    auto it_name_off = offset_name_map.find(name);
 
-      if (it_name_off != std::end(offset_name_map)) {
-        name_offset = it_name_off->second;
-      } else {
-        LIEF_WARN("Can't find symbol: '{}'", name);
-        name_offset = 0;
-      }
-      switch (fmt) {
-        case DYLD_CHAINED_FORMAT::IMPORT:
-          {
-            details::dyld_chained_import import;
-            import.lib_ordinal = info->library_ordinal();
-            import.weak_import = info->is_weak_import();
-            import.name_offset = name_offset;
-            imports.write(import);
-            break;
-          }
-        case DYLD_CHAINED_FORMAT::IMPORT_ADDEND:
-          {
-            details::dyld_chained_import_addend import;
-            import.lib_ordinal = info->library_ordinal();
-            import.weak_import = info->is_weak_import();
-            import.name_offset = name_offset;
-            import.addend      = info->addend();
-            imports_addend.write(import);
-            break;
-          }
-        case DYLD_CHAINED_FORMAT::IMPORT_ADDEND64:
-          {
-            details::dyld_chained_import_addend64 import;
-            import.lib_ordinal = info->library_ordinal();
-            import.weak_import = info->is_weak_import();
-            import.name_offset = name_offset;
-            import.addend      = info->addend();
-            imports_addend64.write(import);
-            break;
-          }
-      }
+    if (it_name_off != std::end(offset_name_map)) {
+      name_offset = it_name_off->second;
+    } else {
+      LIEF_WARN("Can't find symbol: '{}'", name);
+      name_offset = 0;
     }
-    const uint64_t rel_offset = info->offset_ - info->segment()->file_offset();
-    uint8_t* data_ptr = info->segment_->writable_content().data() + rel_offset;
-    // Rewrite the raw chained binding
-    switch (info->btypes_) {
-      case ChainedBindingInfo::BIND_TYPES::ARM64E_BIND:
+    switch (fmt) {
+      case DYLD_CHAINED_FORMAT::IMPORT:
         {
-          auto& raw_bind = *reinterpret_cast<details::dyld_chained_ptr_arm64e*>(data_ptr);
-          raw_bind.bind = *info->arm64_bind_;
+          details::dyld_chained_import import;
+          import.lib_ordinal = info->library_ordinal();
+          import.weak_import = info->is_weak_import();
+          import.name_offset = name_offset;
+          imports.write(import);
           break;
         }
-      case ChainedBindingInfo::BIND_TYPES::ARM64E_AUTH_BIND:
+      case DYLD_CHAINED_FORMAT::IMPORT_ADDEND:
         {
-          auto& raw_bind = *reinterpret_cast<details::dyld_chained_ptr_arm64e*>(data_ptr);
-          raw_bind.auth_bind = *info->arm64_auth_bind_;
+          details::dyld_chained_import_addend import;
+          import.lib_ordinal = info->library_ordinal();
+          import.weak_import = info->is_weak_import();
+          import.name_offset = name_offset;
+          import.addend      = info->addend();
+          imports_addend.write(import);
           break;
         }
-      case ChainedBindingInfo::BIND_TYPES::ARM64E_BIND24:
+      case DYLD_CHAINED_FORMAT::IMPORT_ADDEND64:
         {
-          auto& raw_bind = *reinterpret_cast<details::dyld_chained_ptr_arm64e*>(data_ptr);
-          raw_bind.bind24 = *info->arm64_bind24_;
+          details::dyld_chained_import_addend64 import;
+          import.lib_ordinal = info->library_ordinal();
+          import.weak_import = info->is_weak_import();
+          import.name_offset = name_offset;
+          import.addend      = info->addend();
+          imports_addend64.write(import);
           break;
         }
-      case ChainedBindingInfo::BIND_TYPES::ARM64E_AUTH_BIND24:
-        {
-          auto& raw_bind = *reinterpret_cast<details::dyld_chained_ptr_arm64e*>(data_ptr);
-          raw_bind.auth_bind24 = *info->arm64_auth_bind24_;
-          break;
-        }
-      case ChainedBindingInfo::BIND_TYPES::PTR64_BIND:
-        {
-          auto& raw_bind = *reinterpret_cast<details::dyld_chained_ptr_generic64*>(data_ptr);
-          raw_bind.bind = *info->p64_bind_;
-          break;
-        }
-      case ChainedBindingInfo::BIND_TYPES::PTR32_BIND:
-        {
-          auto& raw_bind = *reinterpret_cast<details::dyld_chained_ptr_generic32*>(data_ptr);
-          raw_bind.bind = *info->p32_bind_;
-          break;
-        }
-      case ChainedBindingInfo::BIND_TYPES::UNKNOWN: break;
+    }
+
+    for (ChainedBindingInfo* elements : info->elements_) {
+      const uint64_t rel_offset = elements->offset_ - elements->segment()->file_offset();
+      uint8_t* data_ptr = elements->segment_->writable_content().data() + rel_offset;
+      // Rewrite the raw chained binding
+      switch (elements->btypes_) {
+        case ChainedBindingInfo::BIND_TYPES::ARM64E_BIND:
+          {
+            auto& raw_bind = *reinterpret_cast<details::dyld_chained_ptr_arm64e*>(data_ptr);
+            raw_bind.bind = *elements->arm64_bind_;
+            break;
+          }
+        case ChainedBindingInfo::BIND_TYPES::ARM64E_AUTH_BIND:
+          {
+            auto& raw_bind = *reinterpret_cast<details::dyld_chained_ptr_arm64e*>(data_ptr);
+            raw_bind.auth_bind = *elements->arm64_auth_bind_;
+            break;
+          }
+        case ChainedBindingInfo::BIND_TYPES::ARM64E_BIND24:
+          {
+            auto& raw_bind = *reinterpret_cast<details::dyld_chained_ptr_arm64e*>(data_ptr);
+            raw_bind.bind24 = *elements->arm64_bind24_;
+            break;
+          }
+        case ChainedBindingInfo::BIND_TYPES::ARM64E_AUTH_BIND24:
+          {
+            auto& raw_bind = *reinterpret_cast<details::dyld_chained_ptr_arm64e*>(data_ptr);
+            raw_bind.auth_bind24 = *elements->arm64_auth_bind24_;
+            break;
+          }
+        case ChainedBindingInfo::BIND_TYPES::PTR64_BIND:
+          {
+            auto& raw_bind = *reinterpret_cast<details::dyld_chained_ptr_generic64*>(data_ptr);
+            raw_bind.bind = *elements->p64_bind_;
+            break;
+          }
+        case ChainedBindingInfo::BIND_TYPES::PTR32_BIND:
+          {
+            auto& raw_bind = *reinterpret_cast<details::dyld_chained_ptr_generic32*>(data_ptr);
+            raw_bind.bind = *elements->p32_bind_;
+            break;
+          }
+        case ChainedBindingInfo::BIND_TYPES::UNKNOWN: break;
+      }
     }
   }
 

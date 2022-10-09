@@ -20,6 +20,7 @@ void check(std::unique_ptr<LIEF::MachO::FatBinary> bin) {
   for (LIEF::MachO::Binary& fit : *bin) {
     ss << fit;
     {
+      fit.shift_linkedit(0x4000);
       for (size_t i = 0; i < 5; ++i) {
         LIEF::MachO::SegmentCommand seg("__LIEF_" + std::to_string(i), std::vector<uint8_t>(0x345, 1));
         fit.add(seg);
@@ -91,6 +92,7 @@ int main(int argc, char** argv) {
     LIEF_ERR("Usage: {} <binary>", argv[0]);
     return EXIT_FAILURE;
   }
+  LIEF::logging::set_level(LIEF::logging::LOG_WARN);
   const std::string path = argv[1];
 
   if (LIEF::ELF::is_elf(path)) {

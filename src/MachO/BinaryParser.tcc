@@ -61,6 +61,7 @@
 
 #include "MachO/Structures.hpp"
 #include "MachO/ChainedFixup.hpp"
+#include "MachO/ChainedBindingInfoList.hpp"
 
 #include "Object.tcc"
 
@@ -2584,7 +2585,7 @@ template<class MACHO_T>
 ok_error_t BinaryParser::do_fixup(DYLD_CHAINED_FORMAT fmt, int32_t ord, const std::string& symbol_name,
                                   int64_t addend, bool is_weak)
 {
-  auto binding_info = std::make_unique<ChainedBindingInfo>(fmt, is_weak);
+  auto binding_info = std::make_unique<ChainedBindingInfoList>(fmt, is_weak);
   binding_info->addend_ = addend;
   binding_info->library_ordinal_ = ord;
   if (0 < ord && static_cast<size_t>(ord) <= binding_libs_.size()) {
@@ -2902,7 +2903,7 @@ ok_error_t BinaryParser::do_chained_fixup(SegmentCommand& segment, uint32_t chai
                   bind_ordinal, chained_fixups_->internal_bindings_.size());
         return make_error_code(lief_errors::read_error);
       }
-      std::unique_ptr<ChainedBindingInfo>& local_binding = chained_fixups_->internal_bindings_[bind_ordinal];
+      std::unique_ptr<ChainedBindingInfoList>& local_binding = chained_fixups_->internal_bindings_[bind_ordinal];
       local_binding->segment_    = &segment;
       local_binding->ptr_format_ = ptr_fmt;
       local_binding->set(fixup.auth_bind);
@@ -2917,6 +2918,8 @@ ok_error_t BinaryParser::do_chained_fixup(SegmentCommand& segment, uint32_t chai
        * to avoid creating a new attribute in ChainedBindingInfo
        */
       binding_extra_info->address_ = imagebase;
+      local_binding->elements_.push_back(binding_extra_info.get());
+
       if (Symbol* sym = binding_extra_info->symbol()) {
         LIEF_DEBUG("{}[  BIND] {}@0x{:x}: {} / sign ext: {:x}",
                    DPREFIX, segment.name(), address, sym->name(), fixup.sign_extended_addend());
@@ -2966,7 +2969,7 @@ ok_error_t BinaryParser::do_chained_fixup(SegmentCommand& segment, uint32_t chai
         return make_error_code(lief_errors::read_error);
       }
 
-      std::unique_ptr<ChainedBindingInfo>& local_binding = chained_fixups_->internal_bindings_[bind_ordinal];
+      std::unique_ptr<ChainedBindingInfoList>& local_binding = chained_fixups_->internal_bindings_[bind_ordinal];
       local_binding->segment_    = &segment;
       local_binding->ptr_format_ = ptr_fmt;
       ptr_fmt == DYLD_CHAINED_PTR_FORMAT::PTR_ARM64E_USERLAND24 ?
@@ -2982,6 +2985,7 @@ ok_error_t BinaryParser::do_chained_fixup(SegmentCommand& segment, uint32_t chai
        * to avoid creating a new attribute in ChainedBindingInfo
        */
       binding_extra_info->address_ = imagebase;
+      local_binding->elements_.push_back(binding_extra_info.get());
 
       if (Symbol* sym = binding_extra_info->symbol()) {
         LIEF_DEBUG("{}[  BIND] {}@0x{:x}: {} / sign ext: {:x}",
@@ -3043,7 +3047,7 @@ ok_error_t BinaryParser::do_chained_fixup(SegmentCommand& segment, uint32_t chai
       return make_error_code(lief_errors::read_error);
     }
 
-    std::unique_ptr<ChainedBindingInfo>& local_binding = chained_fixups_->internal_bindings_[ordinal];
+    std::unique_ptr<ChainedBindingInfoList>& local_binding = chained_fixups_->internal_bindings_[ordinal];
     local_binding->segment_    = &segment;
     local_binding->ptr_format_ = ptr_fmt;
     local_binding->set(fixup.bind);
@@ -3058,6 +3062,8 @@ ok_error_t BinaryParser::do_chained_fixup(SegmentCommand& segment, uint32_t chai
      * to avoid creating a new attribute in ChainedBindingInfo
      */
     binding_extra_info->address_ = binary_->imagebase();
+    local_binding->elements_.push_back(binding_extra_info.get());
+
     if (Symbol* sym = binding_extra_info->symbol()) {
       LIEF_DEBUG("{}[  BIND] {}@0x{:x}: {} / sign ext: {:x}",
                  DPREFIX, segment.name(), address, sym->name(), fixup.sign_extended_addend());
@@ -3129,7 +3135,7 @@ ok_error_t BinaryParser::do_chained_fixup(SegmentCommand& segment, uint32_t chai
       return make_error_code(lief_errors::read_error);
     }
 
-    std::unique_ptr<ChainedBindingInfo>& local_binding = chained_fixups_->internal_bindings_[ordinal];
+    std::unique_ptr<ChainedBindingInfoList>& local_binding = chained_fixups_->internal_bindings_[ordinal];
     local_binding->segment_    = &segment;
     local_binding->ptr_format_ = ptr_fmt;
     local_binding->set(fixup.bind);
@@ -3144,6 +3150,7 @@ ok_error_t BinaryParser::do_chained_fixup(SegmentCommand& segment, uint32_t chai
      * to avoid creating a new attribute in ChainedBindingInfo
      */
     binding_extra_info->address_ = binary_->imagebase();
+    local_binding->elements_.push_back(binding_extra_info.get());
 
     if (Symbol* sym = binding_extra_info->symbol()) {
       LIEF_DEBUG("{}[  BIND] {}@0x{:x}: {} / sign ext: {:x}",

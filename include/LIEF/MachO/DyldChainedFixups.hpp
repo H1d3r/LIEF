@@ -27,6 +27,7 @@ namespace MachO {
 class BinaryParser;
 class Builder;
 class ChainedBindingInfo;
+class ChainedBindingInfoList;
 class LinkEdit;
 
 namespace details {
@@ -195,7 +196,7 @@ class LIEF_API DyldChainedFixups : public LoadCommand {
 
   chained_starts_in_segments_t chained_starts_in_segment_;
 
-  binding_info_t internal_bindings_;
+  std::vector<std::unique_ptr<ChainedBindingInfoList>> internal_bindings_;
   binding_info_t all_bindings_;
 };
 
